@@ -1,10 +1,10 @@
 # Titans-GPT2 Implementation
 
 ## Overview
-This project implements a simplified version of the Titans architecture from "Titans: Learning to Memorize at Test Time" (arXiv:2501.00663, January 2025), integrated with a pre-trained GPT-2 model. It features a neural long-term memory module that updates during inference, enabling test-time learning of new contexts. Unlike the original training on Tiny Shakespeare, this version leverages GPT-2’s pre-trained weights, focusing on interactive text generation with persistent memory updates.
+This project implements a simplified version of the Titans architecture from "Titans: Learning to Memorize at Test Time" (arXiv:2501.00663, January 2025), integrated with a pre-trained GPT-2 model. It features a neural long-term memory module that updates during inference, enabling test-time learning of new contexts. Unlike the original training on Tiny Shakespeare, this version leverages GPT-2's pre-trained weights, focusing on interactive text generation with persistent memory updates.
 
 ### Key Features
-- **Titans Memory**: A stack-based memory (default size 20) updates at test time with a configurable forgetting rate (`beta=0.05`), inspired by the Titans paper’s scalable neural memory.
+- **Titans Memory**: A stack-based memory (default size 20) updates at test time with a configurable forgetting rate (`beta=0.05`), inspired by the Titans paper's scalable neural memory.
 - **GPT-2 Backbone**: Pre-trained GPT-2 (124M parameters) with 12 layers, 768 embedding size, and 12 attention heads, fine-tuned for memory integration.
 - **Continuous Learning**: Memory adapts per interaction, saved with weights for persistence across runs.
 - **Testing Suite**: Automated test with 20 repetitions to verify learning, logging memory changes and context word presence.
@@ -31,7 +31,7 @@ This project implements a simplified version of the Titans architecture from "Ti
    ```
 2. **Install Dependencies**:
    ```bash
-   pip install torch transformers
+   pip install -r requirements.txt
    ```
    - Verify MPS:
      ```python
@@ -46,17 +46,20 @@ This project implements a simplified version of the Titans architecture from "Ti
 ### Project Structure
 ```
 TITANS-implementation/
-├── .venv/              # Virtual environment
+├── .gitignore          # Git ignore file
 ├── gpt-2-titans.py     # Main script with model and testing
-├── titans_gpt2.pth     # Saved weights (memory updates only)
-└── README.md           # This file
+├── README.MD           # Documentation
+├── requirements.txt    # Python dependencies
+├── test-gpt-titan.py  # Test script
+├── test.py            # Additional tests
+└── titans_model.pth   # Model weights
 ```
 
 ## Usage
 
 ### Running the Script
 ```bash
-/Users/giannisan/workspace/TITANS-implementation/.venv/bin/python /Users/giannisan/workspace/TITANS-implementation/gpt-2-titans.py
+python gpt-2-titans.py
 ```
 - **Loads Weights**: Uses `titans_gpt2.pth` if present (memory updates only).
 - **Inference**: Starts with pre-trained GPT-2 weights if no saved memory, updates memory during testing.
