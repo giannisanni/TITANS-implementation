@@ -2,3 +2,5 @@ torch
 requests
 numpy
 transformers
+sentencepiece
+protobuf
