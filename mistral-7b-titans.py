@@ -5,34 +5,49 @@ import os
 import math
 from transformers import MistralForCausalLM, AutoTokenizer
 
+# Check for required dependencies
+try:
+    import sentencepiece
+    import google.protobuf
+except ImportError as e:
+    raise ImportError(
+        "Missing required dependencies. Please install them with:\n"
+        "pip install sentencepiece protobuf\n"
+        "Then restart your Python session."
+    ) from e
+
 # Hyperparameters
 memory_size = 20
 beta = 0.1
 eta = 0.01
 theta = 0.1
-max_seq_len = 256  # Reduced for memory efficiency on M3
+max_seq_len = 256
 learning_rate = 0.001
 temperature = 0.7
 top_k = 50
 top_p = 0.9
-num_repetitions = 10  # Reduced to lower memory pressure
+num_repetitions = 10
 
-# Device setup for M3 (ARM architecture with MPS)
-device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
-if device.type == "cpu":
-    print("Warning: MPS not available. Running on CPU will be slow for Mistral 7B.")
+# Device setup for multi-platform support
+if torch.backends.mps.is_available():
+    device = torch.device("mps")
+    print("Using MPS device (Apple Silicon).")
+elif torch.cuda.is_available():
+    device = torch.device("cuda")
+    print(f"Using CUDA device: {torch.cuda.get_device_name(0)}")
 else:
-    print("Using MPS device on M3 for acceleration.")
+    device = torch.device("cpu")
+    print("No GPU available. Falling back to CPU (may be slow for Mistral 7B).")
 
 class TitansMistral(nn.Module):
     def __init__(self, base_model, memory_size=memory_size):
         super(TitansMistral, self).__init__()
         self.base_model = base_model.to(device)
-        self.d_model = base_model.config.hidden_size  # 4096 for Mistral 7B
+        self.d_model = base_model.config.hidden_size
         self.memory_weight = nn.Sequential(
             nn.Linear(self.d_model, self.d_model * 2),
             nn.ReLU(),
-            nn.Linear(self.d_model * 2, self.d_model * 2), 
+            nn.Linear(self.d_model * 2, self.d_model * 2),
             nn.ReLU(),
             nn.Linear(self.d_model * 2, self.d_model)
         ).to(device)
@@ -53,12 +68,10 @@ class TitansMistral(nn.Module):
         if memory is None:
             memory = self.memory.expand(inputs_embeds.size(0), memory_size, self.d_model).to(device)
 
-        # Add positional encoding to memory
         pos_encoding = self.get_positional_encoding(memory_size, self.d_model).to(device)
         memory = memory + pos_encoding[:, :memory_size, :]
 
-        # Dynamic memory scaling (conservative for M3)
-        memory_scale = 5 + repetition  # Lowered for memory efficiency
+        memory_scale = 5 + repetition
         x_with_memory = torch.cat([inputs_embeds, memory * memory_scale], dim=1).to(device)
 
         outputs = self.base_model(inputs_embeds=x_with_memory)
@@ -125,17 +138,14 @@ def generate_and_learn(model, tokenizer, start_text, new_context=None, max_lengt
         loss = F.cross_entropy(logits.view(-1, model.base_model.config.vocab_size), context_ids.view(-1))
         loss.backward()
 
-        # Clip gradients
         torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
         print(f"Loss: {loss.item():.4f}")
 
-        # Token-specific surprise
         grad = inputs_embeds.grad if inputs_embeds.grad is not None else torch.zeros_like(inputs_embeds)
         dynamic_theta = theta * min(2.0, 1 + math.log(repetition + 1))
         S_t = eta * model.previous_surprise[:, :grad.size(1), :] - dynamic_theta * grad
         model.previous_surprise = F.pad(S_t, (0, 0, 0, memory_size - S_t.size(1)), "constant", 0).detach().to(device)
 
-        # Capped alpha_t
         alpha_t = min(beta * loss.item() * (repetition + 1), 0.5)
         new_memory = model.memory.clone()
         update_slots = min(grad.size(1), memory_size)
@@ -181,14 +191,13 @@ def generate_and_learn(model, tokenizer, start_text, new_context=None, max_lengt
         return generated_text
 
 def interactive_session(model, tokenizer):
-    weights_path = "titans_mistral_m3.pth"
+    weights_path = f"titans_mistral_{device.type}.pth"
     if os.path.exists(weights_path):
         model.load_state_dict(torch.load(weights_path, map_location=device))
         print(f"Loaded saved weights from '{weights_path}'")
     else:
         print("No saved weights found. Using pre-trained Mistral 7B weights.")
 
-    # Verify tokenizer
     sample_text = "Hello, this is a test."
     encoded = tokenizer.encode(sample_text, return_tensors="pt").to(device)
     decoded = tokenizer.decode(encoded[0], skip_special_tokens=True)
@@ -226,17 +235,21 @@ def interactive_session(model, tokenizer):
         print(f"Generated Text:\n{generated_text}\n")
 
 if __name__ == "__main__":
-    # Load Mistral 7B with reduced precision for M3
-    base_model = MistralForCausalLM.from_pretrained("mistralai/Mistral-7B-v0.3", torch_dtype=torch.float16).to(device)
-    tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.3")
-    
-    # Ensure pad_token is set
+    try:
+        base_model = MistralForCausalLM.from_pretrained("mistralai/Mistral-7B-v0.1", torch_dtype=torch.float16).to(device)
+        tokenizer = AutoTokenizer.from_pretrained("mistralai/Mistral-7B-v0.1")
+    except Exception as e:
+        print(f"Error loading model or tokenizer: {e}")
+        print("Ensure 'sentencepiece' and 'protobuf' are installed and try again.")
+        exit(1)
+
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
-    
+
     model = TitansMistral(base_model, memory_size=memory_size).to(device)
-    
-    # Memory usage check (basic, no CUDA-specific tools)
     print(f"Model moved to {device}. Ready to run.")
+    
+    if device.type == "cuda":
+        print(f"CUDA memory summary:\n{torch.cuda.memory_summary(device=device)}")
     
     interactive_session(model, tokenizer)
